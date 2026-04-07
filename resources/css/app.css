@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+    /* ─── Boutons ─── */
+    .btn-primary {
+        @apply inline-flex items-center justify-center bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-5 rounded-xl shadow-sm hover:shadow transition-all duration-200 transform hover:-translate-y-0.5 outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    }
+    
+    .btn-secondary {
+        @apply inline-flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium py-2 px-5 rounded-xl shadow-sm transition-all duration-200 outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    }
+
+    .btn-accent {
+        @apply inline-flex items-center justify-center bg-accent-500 hover:bg-accent-600 text-white font-bold py-3 px-6 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1 outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2;
+    }
+
+    .btn-danger {
+        @apply inline-flex items-center justify-center bg-red-50 text-red-600 hover:bg-red-600 hover:text-white font-medium py-2 px-4 rounded-xl transition-colors duration-200;
+    }
+
+    /* ─── Cartes & Conteneurs ─── */
+    .card {
+        @apply bg-white shadow-sm border border-slate-200/60 rounded-2xl p-6 transition-shadow duration-300 hover:shadow-md;
+    }
+    
+    .card-header {
+        @apply flex justify-between items-center mb-5 pb-3 border-b border-slate-100;
+    }
+
+    .card-title {
+        @apply text-lg font-bold text-slate-800;
+    }
+
+    /* ─── Formulaires ─── */
+    .form-input {
+        @apply w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-shadow;
+    }
+    
+    .form-label {
+        @apply block text-sm font-semibold text-slate-700 mb-1.5;
+    }
+
+    /* ─── Navigation ─── */
+    .nav-btn {
+        @apply px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-indigo-600 flex items-center gap-2;
+    }
+    .nav-btn.active {
+        @apply bg-indigo-50 text-indigo-700 shadow-sm border border-indigo-100/50;
+    }
+}
