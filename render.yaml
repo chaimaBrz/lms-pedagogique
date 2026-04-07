@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: lms-pedagogique
+    runtime: php
+    buildCommand: composer install --no-dev && npm install && npm run build
+    startCommand: vendor/bin/heroku-php-apache2 public/
+    envVars:
+      - key: APP_KEY
+        value: base64:nd2wl5EPpwygijl5n48BMyMYMyplR4mk4OsCaXHqSa4=
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DB_CONNECTION
+        value: sqlite
+      - key: DB_DATABASE
+        value: /opt/render/project/src/database/database.sqlite
+      - key: GEMINI_API_KEY
+        value: AIzaSyAFUgLsDsYY_MTQO6wN02blEIoipNCZmgY
