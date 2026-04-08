@@ -1,5 +1,6 @@
 [phases.setup]
 nixPkgs = ["php82", "php82Packages.composer", "nodejs"]
+aptPkgs = ["libatomic1"]
 
 [phases.build]
 cmds = ["composer install --no-dev", "npm install --legacy-peer-deps", "npm run build"]
