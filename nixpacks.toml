@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["php82", "php82Packages.composer", "nodejs"]
+
+[phases.build]
+cmds = ["composer install --no-dev", "npm install", "npm run build"]
+
+[phases.release]
+cmds = ["php artisan migrate --force"]
+
+[start]
+cmd = "vendor/bin/heroku-php-apache2 public/"
