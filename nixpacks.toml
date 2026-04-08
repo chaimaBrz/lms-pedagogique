@@ -8,5 +8,3 @@ cmds = ["composer install --no-dev", "npm install --legacy-peer-deps", "npm run 
 [phases.release]
 cmds = ["php artisan migrate --force"]
 
-[start]
-cmd = "vendor/bin/heroku-php-apache2 public/"
