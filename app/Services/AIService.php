@@ -14,7 +14,7 @@ class AIService
     public function __construct()
     {
         $this->apiKey  = config('services.gemini.api_key', '');
-        $this->model   = config('services.gemini.model', 'gemini-2.0-flash');
+        $this->model   = config('services.gemini.model', 'gemini-1.5-flash');
         $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
     }
 
@@ -76,8 +76,14 @@ PROMPT;
         try {
             $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
 
-            $response = Http::timeout(120)
-                ->retry(2, 5000)
+            $response = Http::timeout(150)
+                ->retry(3, 10000, function ($exception, $request) {
+                    // On réessaie si c'est un timeout ou une erreur de quota (429) ou surcharge (503)
+                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
+                        return in_array($exception->response->status(), [429, 503]);
+                    }
+                    return $exception instanceof \Illuminate\Http\Client\ConnectionException;
+                })
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($url, [
                     'contents' => [
@@ -94,17 +100,25 @@ PROMPT;
                         'responseMimeType' => 'application/json',
                     ],
                 ]);
-
+            
             if ($response->failed()) {
+                $status = $response->status();
                 $errorBody = $response->json();
-                $errorMessage = $errorBody['error']['message'] ?? 'Erreur inconnue de l\'API Gemini.';
-                Log::error('Gemini API error', ['status' => $response->status(), 'body' => $errorBody]);
+                Log::error('Gemini API error', ['status' => $status, 'body' => $errorBody]);
+
+                if ($status === 429) {
+                    $errorMessage = "Quota dépassé (429). L'API gratuite de Google limite le nombre de requêtes. Veuillez attendre 1 à 2 minutes avant de réessayer.";
+                } elseif ($status === 503 || $status === 500) {
+                    $errorMessage = "Le service IA de Google est actuellement surchargé ou indisponible (Code: {$status}). Veuillez réessayer dans un instant.";
+                } else {
+                    $errorMessage = $errorBody['error']['message'] ?? "Une erreur est survenue lors de la communication avec l'IA (Code: {$status}).";
+                }
 
                 return [
                     'success' => false,
                     'data'    => null,
                     'raw'     => '',
-                    'error'   => "Le service IA de Google est actuellement indisponible (Surcharge serveurs). Veuillez réessayer dans un instant. (Code: {$response->status()})",
+                    'error'   => $errorMessage,
                 ];
             }
 
