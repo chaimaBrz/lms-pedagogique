@@ -35,25 +35,23 @@ class AIService
         }
 
         $systemPrompt = <<<'PROMPT'
-Tu es un expert en pédagogie et en création de contenu éducatif.
-L'utilisateur va te demander de créer une formation. Tu dois répondre UNIQUEMENT avec un JSON valide, sans aucun texte avant ou après, sans backticks, sans markdown.
-
-Le JSON doit suivre EXACTEMENT cette structure :
+Tu es un expert en pédagogie. Crée une formation en JSON valide uniquement (pas de markdown ni backticks).
+Structure exacte :
 {
-  "formation": "Nom de la formation",
-  "niveau": "Ex: Débutant, Intermédiaire, Avancé",
-  "duree": "Ex: 10h, 2 semaines, etc.",
+  "formation": "Nom",
+  "niveau": "Débutant/Intermédiaire/Avancé",
+  "duree": "durée estimée",
   "chapitres": [
     {
-      "titre": "Nom du chapitre",
+      "titre": "Chapitre",
       "sous_chapitres": [
         {
-          "titre": "Titre du sous-chapitre",
-          "contenu": "Texte pédagogique détaillé de 3 à 5 paragraphes. Écris un vrai cours complet et instructif.",
+          "titre": "Sous-chapitre",
+          "contenu": "Cours détaillé en 2-3 paragraphes.",
           "quiz": [
             {
-              "question": "Question à choix multiple ?",
-              "reponses": ["Réponse A", "Réponse B", "Réponse C", "Réponse D"],
+              "question": "Question ?",
+              "reponses": ["A", "B", "C", "D"],
               "bonne_reponse": 0
             }
           ]
@@ -62,42 +60,31 @@ Le JSON doit suivre EXACTEMENT cette structure :
     }
   ]
 }
-
-Règles strictes :
-- Génère au moins 2 chapitres (ou le nombre exact demandé par l'utilisateur)
-- Chaque chapitre doit avoir au moins 2 sous-chapitres
-- Chaque sous-chapitre doit avoir exactement 3 questions de quiz
-- Chaque question doit avoir exactement 4 réponses
-- "bonne_reponse" est l'index (0, 1, 2 ou 3) de la bonne réponse
-- Le contenu pédagogique doit être détaillé, pédagogique et adapté au niveau
-- Retourne UNIQUEMENT le JSON, rien d'autre
+Règles : 2 chapitres minimum, 2 sous-chapitres par chapitre, 2 questions de quiz par sous-chapitre, 4 réponses par question, bonne_reponse = index 0-3. Retourne UNIQUEMENT le JSON.
 PROMPT;
 
         try {
             $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
 
-            $requestBody = [
-                'contents' => [
-                    [
-                        'role'  => 'user',
-                        'parts' => [
-                            ['text' => $systemPrompt . "\n\nDemande de l'utilisateur : " . $userPrompt],
+            // UNE SEULE requête, pas de retry (pour ne pas gaspiller le quota)
+            $response = Http::timeout(120)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($url, [
+                    'contents' => [
+                        [
+                            'role'  => 'user',
+                            'parts' => [
+                                ['text' => $systemPrompt . "\n\nCrée : " . $userPrompt],
+                            ],
                         ],
                     ],
-                ],
-                'generationConfig' => [
-                    'temperature'      => 0.7,
-                    'maxOutputTokens'  => 8192,
-                    'responseMimeType' => 'application/json',
-                ],
-            ];
+                    'generationConfig' => [
+                        'temperature'      => 0.7,
+                        'maxOutputTokens'  => 4096,
+                        'responseMimeType' => 'application/json',
+                    ],
+                ]);
 
-            $response = Http::timeout(150)
-                ->retry(2, 10000)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($url, $requestBody);
-
-            // Vérifier si la réponse est en erreur
             if ($response->failed()) {
                 $status    = $response->status();
                 $errorBody = $response->json();
@@ -108,7 +95,7 @@ PROMPT;
                         'success' => false,
                         'data'    => null,
                         'raw'     => '',
-                        'error'   => 'Quota API dépassé. L\'API gratuite Google Gemini limite le nombre de requêtes par minute. Veuillez patienter 1 à 2 minutes puis réessayer.',
+                        'error'   => 'Quota API dépassé. Le quota gratuit se réinitialise toutes les 24h. Réessayez demain ou créez une nouvelle clé API sur un nouveau projet Google : aistudio.google.com/apikey',
                     ];
                 }
 
@@ -117,7 +104,7 @@ PROMPT;
                         'success' => false,
                         'data'    => null,
                         'raw'     => '',
-                        'error'   => "Modèle IA introuvable ({$this->model}). Vérifiez la variable GEMINI_MODEL dans les paramètres.",
+                        'error'   => "Modèle IA introuvable ({$this->model}). Vérifiez la variable GEMINI_MODEL.",
                     ];
                 }
 
@@ -135,7 +122,7 @@ PROMPT;
                     'success' => false,
                     'data'    => null,
                     'raw'     => '',
-                    'error'   => "Erreur du service IA (Code {$status}). " . ($apiMessage ?: 'Réessayez dans un instant.'),
+                    'error'   => "Erreur IA (Code {$status}). " . ($apiMessage ?: 'Réessayez dans un instant.'),
                 ];
             }
 
@@ -148,17 +135,15 @@ PROMPT;
                     'success' => false,
                     'data'    => null,
                     'raw'     => '',
-                    'error'   => 'L\'IA n\'a retourné aucune réponse. Essayez de reformuler votre demande.',
+                    'error'   => 'L\'IA n\'a retourné aucune réponse. Reformulez votre demande.',
                 ];
             }
 
-            // Nettoyer le texte (enlever ```json ... ``` si présent)
-            $cleanedText = $text;
-            $cleanedText = preg_replace('/^```json\s*\n?/i', '', $cleanedText);
+            // Nettoyer le texte
+            $cleanedText = preg_replace('/^```json\s*\n?/i', '', $text);
             $cleanedText = preg_replace('/\n?```\s*$/i', '', $cleanedText);
             $cleanedText = trim($cleanedText);
 
-            // Parser le JSON
             $parsed = json_decode($cleanedText, true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
@@ -166,16 +151,15 @@ PROMPT;
                     'success' => false,
                     'data'    => null,
                     'raw'     => $cleanedText,
-                    'error'   => 'L\'IA a répondu mais le format JSON est invalide : ' . json_last_error_msg(),
+                    'error'   => 'Format JSON invalide : ' . json_last_error_msg(),
                 ];
             }
 
-            // Valider la structure minimale
-            foreach (['formation', 'niveau', 'duree', 'chapitres'] as $key) {
-                if (empty($parsed[$key])) {
-                    $parsed[$key] = $key === 'duree' ? '1h' : 'Débutant';
-                }
-            }
+            // Valeurs par défaut
+            $parsed['formation'] = $parsed['formation'] ?? 'Formation';
+            $parsed['niveau']    = $parsed['niveau'] ?? 'Débutant';
+            $parsed['duree']     = $parsed['duree'] ?? '1h';
+            $parsed['chapitres'] = $parsed['chapitres'] ?? [];
 
             return [
                 'success' => true,
@@ -184,40 +168,21 @@ PROMPT;
                 'error'   => null,
             ];
 
-        } catch (\Illuminate\Http\Client\RequestException $e) {
-            $status = $e->response->status();
-            Log::error('Gemini RequestException', ['status' => $status, 'message' => $e->getMessage()]);
-
-            if ($status === 429) {
-                return [
-                    'success' => false,
-                    'data'    => null,
-                    'raw'     => '',
-                    'error'   => 'Quota API dépassé (429). Veuillez patienter 1 à 2 minutes puis réessayer.',
-                ];
-            }
-
-            return [
-                'success' => false,
-                'data'    => null,
-                'raw'     => '',
-                'error'   => "Erreur API Gemini (Code {$status}). Réessayez dans un instant.",
-            ];
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             Log::error('Gemini connection error', ['message' => $e->getMessage()]);
             return [
                 'success' => false,
                 'data'    => null,
                 'raw'     => '',
-                'error'   => 'Impossible de joindre l\'API Gemini. Vérifiez votre connexion internet.',
+                'error'   => 'Impossible de joindre l\'API Gemini. Vérifiez la connexion internet.',
             ];
         } catch (\Exception $e) {
-            Log::error('Gemini unexpected error', ['message' => $e->getMessage()]);
+            Log::error('Gemini error', ['message' => $e->getMessage()]);
             return [
                 'success' => false,
                 'data'    => null,
                 'raw'     => '',
-                'error'   => 'Erreur inattendue : ' . $e->getMessage(),
+                'error'   => 'Erreur : ' . $e->getMessage(),
             ];
         }
     }
