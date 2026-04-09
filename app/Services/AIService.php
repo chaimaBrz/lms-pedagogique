@@ -77,14 +77,7 @@ PROMPT;
             $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
 
             $response = Http::timeout(120)
-                ->retry(3, 8000, function ($exception, $request) {
-                    // Retry si on a une erreur 503 (High Demand) ou 429 (Rate Limit) de l'API
-                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
-                        return in_array($exception->response->status(), [503, 429]);
-                    }
-                    return false;
-                })
-                ->withoutVerifying() // 👈 Ajout pour éviter les erreurs SSL cURL en local
+                ->retry(2, 5000)
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($url, [
                     'contents' => [
