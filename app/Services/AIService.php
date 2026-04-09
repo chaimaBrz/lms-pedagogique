@@ -92,25 +92,10 @@ PROMPT;
                 ],
             ];
 
-            // Construire la requête HTTP avec retry intelligent
-            $httpClient = Http::timeout(150)
-                ->retry(3, 15000, function ($exception, $request) {
-                    // Réessayer sur quota dépassé (429), surcharge (503) ou erreur serveur (500)
-                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
-                        $status = $exception->response->status();
-                        Log::warning("Gemini API retry", ['status' => $status]);
-                        return in_array($status, [429, 500, 503]);
-                    }
-                    // Réessayer aussi sur les erreurs de connexion
-                    if ($exception instanceof \Illuminate\Http\Client\ConnectionException) {
-                        Log::warning("Gemini connection retry", ['message' => $exception->getMessage()]);
-                        return true;
-                    }
-                    return false;
-                }, throw: false) // ← Ne PAS lancer d'exception après les retries
-                ->withHeaders(['Content-Type' => 'application/json']);
-
-            $response = $httpClient->post($url, $requestBody);
+            $response = Http::timeout(150)
+                ->retry(2, 10000)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($url, $requestBody);
 
             // Vérifier si la réponse est en erreur
             if ($response->failed()) {
@@ -150,7 +135,7 @@ PROMPT;
                     'success' => false,
                     'data'    => null,
                     'raw'     => '',
-                    'error'   => "Erreur du service IA Google (Code {$status}). " . ($apiMessage ?: 'Réessayez dans un instant.'),
+                    'error'   => "Erreur du service IA (Code {$status}). " . ($apiMessage ?: 'Réessayez dans un instant.'),
                 ];
             }
 
@@ -188,7 +173,7 @@ PROMPT;
             // Valider la structure minimale
             foreach (['formation', 'niveau', 'duree', 'chapitres'] as $key) {
                 if (empty($parsed[$key])) {
-                    $parsed[$key] = $key === 'duree' ? '1h' : 'Débutant'; // Valeurs par défaut si l'IA oublie
+                    $parsed[$key] = $key === 'duree' ? '1h' : 'Débutant';
                 }
             }
 
@@ -199,6 +184,25 @@ PROMPT;
                 'error'   => null,
             ];
 
+        } catch (\Illuminate\Http\Client\RequestException $e) {
+            $status = $e->response->status();
+            Log::error('Gemini RequestException', ['status' => $status, 'message' => $e->getMessage()]);
+
+            if ($status === 429) {
+                return [
+                    'success' => false,
+                    'data'    => null,
+                    'raw'     => '',
+                    'error'   => 'Quota API dépassé (429). Veuillez patienter 1 à 2 minutes puis réessayer.',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'data'    => null,
+                'raw'     => '',
+                'error'   => "Erreur API Gemini (Code {$status}). Réessayez dans un instant.",
+            ];
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             Log::error('Gemini connection error', ['message' => $e->getMessage()]);
             return [
@@ -208,7 +212,7 @@ PROMPT;
                 'error'   => 'Impossible de joindre l\'API Gemini. Vérifiez votre connexion internet.',
             ];
         } catch (\Exception $e) {
-            Log::error('Gemini unexpected error', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Gemini unexpected error', ['message' => $e->getMessage()]);
             return [
                 'success' => false,
                 'data'    => null,
