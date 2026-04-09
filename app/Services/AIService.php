@@ -14,7 +14,7 @@ class AIService
     public function __construct()
     {
         $this->apiKey  = config('services.gemini.api_key', '');
-        $this->model   = config('services.gemini.model', 'gemini-1.5-flash');
+        $this->model   = config('services.gemini.model', 'gemini-2.0-flash');
         $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
     }
 
@@ -76,49 +76,81 @@ PROMPT;
         try {
             $url = "{$this->baseUrl}/{$this->model}:generateContent?key={$this->apiKey}";
 
-            $response = Http::timeout(150)
-                ->retry(3, 10000, function ($exception, $request) {
-                    // On réessaie si c'est un timeout ou une erreur de quota (429) ou surcharge (503)
-                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
-                        return in_array($exception->response->status(), [429, 503]);
-                    }
-                    return $exception instanceof \Illuminate\Http\Client\ConnectionException;
-                })
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($url, [
-                    'contents' => [
-                        [
-                            'role'  => 'user',
-                            'parts' => [
-                                ['text' => $systemPrompt . "\n\nDemande de l'utilisateur : " . $userPrompt],
-                            ],
+            $requestBody = [
+                'contents' => [
+                    [
+                        'role'  => 'user',
+                        'parts' => [
+                            ['text' => $systemPrompt . "\n\nDemande de l'utilisateur : " . $userPrompt],
                         ],
                     ],
-                    'generationConfig' => [
-                        'temperature'     => 0.7,
-                        'maxOutputTokens' => 8192,
-                        'responseMimeType' => 'application/json',
-                    ],
-                ]);
-            
+                ],
+                'generationConfig' => [
+                    'temperature'      => 0.7,
+                    'maxOutputTokens'  => 8192,
+                    'responseMimeType' => 'application/json',
+                ],
+            ];
+
+            // Construire la requête HTTP avec retry intelligent
+            $httpClient = Http::timeout(150)
+                ->retry(3, 15000, function ($exception, $request) {
+                    // Réessayer sur quota dépassé (429), surcharge (503) ou erreur serveur (500)
+                    if ($exception instanceof \Illuminate\Http\Client\RequestException) {
+                        $status = $exception->response->status();
+                        Log::warning("Gemini API retry", ['status' => $status]);
+                        return in_array($status, [429, 500, 503]);
+                    }
+                    // Réessayer aussi sur les erreurs de connexion
+                    if ($exception instanceof \Illuminate\Http\Client\ConnectionException) {
+                        Log::warning("Gemini connection retry", ['message' => $exception->getMessage()]);
+                        return true;
+                    }
+                    return false;
+                }, throw: false) // ← Ne PAS lancer d'exception après les retries
+                ->withHeaders(['Content-Type' => 'application/json']);
+
+            $response = $httpClient->post($url, $requestBody);
+
+            // Vérifier si la réponse est en erreur
             if ($response->failed()) {
-                $status = $response->status();
+                $status    = $response->status();
                 $errorBody = $response->json();
                 Log::error('Gemini API error', ['status' => $status, 'body' => $errorBody]);
 
                 if ($status === 429) {
-                    $errorMessage = "Quota dépassé (429). L'API gratuite de Google limite le nombre de requêtes. Veuillez attendre 1 à 2 minutes avant de réessayer.";
-                } elseif ($status === 503 || $status === 500) {
-                    $errorMessage = "Le service IA de Google est actuellement surchargé ou indisponible (Code: {$status}). Veuillez réessayer dans un instant.";
-                } else {
-                    $errorMessage = $errorBody['error']['message'] ?? "Une erreur est survenue lors de la communication avec l'IA (Code: {$status}).";
+                    return [
+                        'success' => false,
+                        'data'    => null,
+                        'raw'     => '',
+                        'error'   => 'Quota API dépassé. L\'API gratuite Google Gemini limite le nombre de requêtes par minute. Veuillez patienter 1 à 2 minutes puis réessayer.',
+                    ];
                 }
 
+                if ($status === 404) {
+                    return [
+                        'success' => false,
+                        'data'    => null,
+                        'raw'     => '',
+                        'error'   => "Modèle IA introuvable ({$this->model}). Vérifiez la variable GEMINI_MODEL dans les paramètres.",
+                    ];
+                }
+
+                if ($status === 403) {
+                    return [
+                        'success' => false,
+                        'data'    => null,
+                        'raw'     => '',
+                        'error'   => 'Clé API invalide ou désactivée. Vérifiez votre GEMINI_API_KEY.',
+                    ];
+                }
+
+                $apiMessage = $errorBody['error']['message'] ?? '';
                 return [
                     'success' => false,
                     'data'    => null,
                     'raw'     => '',
-                    'error'   => $errorMessage,
+                    'error'   => "Erreur du service IA Google (Code {$status}). " . ($apiMessage ?: 'Réessayez dans un instant.'),
                 ];
             }
 
@@ -176,7 +208,7 @@ PROMPT;
                 'error'   => 'Impossible de joindre l\'API Gemini. Vérifiez votre connexion internet.',
             ];
         } catch (\Exception $e) {
-            Log::error('Gemini unexpected error', ['message' => $e->getMessage()]);
+            Log::error('Gemini unexpected error', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return [
                 'success' => false,
                 'data'    => null,
